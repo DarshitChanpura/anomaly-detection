@@ -14,9 +14,7 @@ package org.opensearch.forecast.transport;
 import static org.opensearch.forecast.constant.ForecastCommonMessages.FAIL_TO_CREATE_FORECASTER;
 import static org.opensearch.forecast.constant.ForecastCommonMessages.FAIL_TO_UPDATE_FORECASTER;
 import static org.opensearch.forecast.settings.ForecastSettings.FORECAST_FILTER_BY_BACKEND_ROLES;
-import static org.opensearch.timeseries.util.ParseUtils.checkFilterByBackendRoles;
-import static org.opensearch.timeseries.util.ParseUtils.getConfig;
-import static org.opensearch.timeseries.util.ParseUtils.getUserContext;
+import static org.opensearch.timeseries.util.ParseUtils.*;
 import static org.opensearch.timeseries.util.RestHandlerUtils.wrapRestActionListener;
 
 import java.util.List;
@@ -100,7 +98,6 @@ public class IndexForecasterTransportAction extends HandledTransportAction<Index
         ActionListener<IndexForecasterResponse> listener = wrapRestActionListener(actionListener, errorMessage);
         try (ThreadContext.StoredContext context = client.threadPool().getThreadContext().stashContext()) {
             resolveUserAndExecute(
-                user,
                 forecasterId,
                 method,
                 listener,
@@ -113,41 +110,16 @@ public class IndexForecasterTransportAction extends HandledTransportAction<Index
     }
 
     private void resolveUserAndExecute(
-        User requestedUser,
         String forecasterId,
         RestRequest.Method method,
         ActionListener<IndexForecasterResponse> listener,
         Consumer<Forecaster> function
     ) {
         try {
-            // requestedUser == null means security is disabled or user is superadmin. In this case we don't need to
-            // check if request user have access to the forecaster or not. But we still need to get current forecaster for
-            // this case, so we can keep current forecaster's user data.
-            boolean filterByBackendRole = requestedUser == null ? false : filterByEnabled;
-
-            // Check if user has backend roles
-            // When filter by is enabled, block users creating/updating detectors who do not have backend roles.
-            if (filterByEnabled) {
-                String error = checkFilterByBackendRoles(requestedUser);
-                if (error != null) {
-                    listener.onFailure(new IllegalArgumentException(error));
-                    return;
-                }
-            }
             if (method == RestRequest.Method.PUT) {
                 // Update forecaster request, check if user has permissions to update the forecaster
                 // Get forecaster and verify backend roles
-                getConfig(
-                    requestedUser,
-                    forecasterId,
-                    listener,
-                    function,
-                    client,
-                    clusterService,
-                    xContentRegistry,
-                    filterByBackendRole,
-                    Forecaster.class
-                );
+                getConfig(forecasterId, listener, function, client, clusterService, xContentRegistry, Forecaster.class);
             } else {
                 // Create Detector. No need to get current detector.
                 function.accept(null);

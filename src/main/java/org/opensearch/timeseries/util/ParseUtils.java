@@ -39,6 +39,7 @@ import org.opensearch.OpenSearchStatusException;
 import org.opensearch.action.get.GetRequest;
 import org.opensearch.action.get.GetResponse;
 import org.opensearch.action.search.SearchResponse;
+import org.opensearch.ad.constant.ADResourceScope;
 import org.opensearch.client.Client;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.xcontent.LoggingDeprecationHandler;
@@ -70,6 +71,7 @@ import org.opensearch.search.aggregations.bucket.histogram.DateHistogramInterval
 import org.opensearch.search.aggregations.bucket.range.DateRangeAggregationBuilder;
 import org.opensearch.search.aggregations.metrics.Max;
 import org.opensearch.search.builder.SearchSourceBuilder;
+import org.opensearch.timeseries.TimeSeriesAnalyticsPlugin;
 import org.opensearch.timeseries.common.exception.TimeSeriesException;
 import org.opensearch.timeseries.constant.CommonMessages;
 import org.opensearch.timeseries.constant.CommonName;
@@ -484,9 +486,7 @@ public final class ParseUtils {
     /**
      * run the given function based on given user
      * @param <GetConfigResponseType> Config response type. Can be either GetAnomalyDetectorResponse or GetForecasterResponse
-     * @param requestedUser requested user
      * @param configId config Id
-     * @param filterByEnabled filter by backend is enabled
      * @param listener listener. We didn't provide the generic type of listener and therefore can return anything using the listener.
      * @param function Function to execute
      * @param client Client to OS.
@@ -495,9 +495,7 @@ public final class ParseUtils {
      * @param configTypeClass the class of the ConfigType, used by the ConfigFactory to parse the correct type of Config
      */
     public static <ConfigType extends Config, GetConfigResponseType extends ActionResponse> void resolveUserAndExecute(
-        User requestedUser,
         String configId,
-        boolean filterByEnabled,
         ActionListener listener,
         Consumer<ConfigType> function,
         Client client,
@@ -506,22 +504,11 @@ public final class ParseUtils {
         Class<ConfigType> configTypeClass
     ) {
         try {
-            if (requestedUser == null || configId == null) {
-                // requestedUser == null means security is disabled or user is superadmin. In this case we don't need to
-                // check if request user have access to the detector or not.
+            if (configId == null) {
+                // configId == null indicates this is a new config creation request. We do not check for resource permission on new creation
                 function.accept(null);
             } else {
-                getConfig(
-                    requestedUser,
-                    configId,
-                    listener,
-                    function,
-                    client,
-                    clusterService,
-                    xContentRegistry,
-                    filterByEnabled,
-                    configTypeClass
-                );
+                getConfig(configId, listener, function, client, clusterService, xContentRegistry, configTypeClass);
             }
         } catch (Exception e) {
             listener.onFailure(e);
@@ -529,46 +516,35 @@ public final class ParseUtils {
     }
 
     /**
-     * If filterByEnabled is true, get config and check if the user has permissions to access the config,
-     * then execute function; otherwise, get config and execute function
-     * @param requestUser user from request
+     * Get config and execute function
      * @param configId config id
      * @param listener action listener
      * @param function consumer function
      * @param client client
      * @param clusterService cluster service
      * @param xContentRegistry XContent registry
-     * @param filterByBackendRole filter by backend role or not
      * @param configTypeClass the class of the ConfigType, used by the ConfigFactory to parse the correct type of Config
      */
     public static <ConfigType extends Config, GetConfigResponseType extends ActionResponse> void getConfig(
-        User requestUser,
         String configId,
         ActionListener<GetConfigResponseType> listener,
         Consumer<ConfigType> function,
         Client client,
         ClusterService clusterService,
         NamedXContentRegistry xContentRegistry,
-        boolean filterByBackendRole,
         Class<ConfigType> configTypeClass
     ) {
         if (clusterService.state().metadata().indices().containsKey(CommonName.CONFIG_INDEX)) {
+            // Check whether current user has access to update the detector
+            validatePermissions(configId, listener);
+
             GetRequest request = new GetRequest(CommonName.CONFIG_INDEX).id(configId);
             client
                 .get(
                     request,
                     ActionListener
                         .wrap(
-                            response -> onGetConfigResponse(
-                                response,
-                                requestUser,
-                                configId,
-                                listener,
-                                function,
-                                xContentRegistry,
-                                filterByBackendRole,
-                                configTypeClass
-                            ),
+                            response -> onGetConfigResponse(response, configId, listener, function, xContentRegistry, configTypeClass),
                             exception -> {
                                 logger.error("Failed to get config: " + configId, exception);
                                 listener.onFailure(exception);
@@ -594,22 +570,18 @@ public final class ParseUtils {
      * @param <ConfigType> The type of Config to be processed in this method, which extends from the Config base type.
      * @param <GetConfigResponseType> The type of ActionResponse to be used, which extends from the ActionResponse base type.
      * @param response The GetResponse from the getConfig request. This contains the information about the config that is to be processed.
-     * @param requestUser The User from the request. This user's permissions will be checked to ensure they have access to the config.
      * @param configId The ID of the config. This is used for logging and error messages.
      * @param listener The ActionListener to call if an error occurs. Any errors that occur during the processing of the config will be passed to this listener.
      * @param function The Consumer function to apply to the ConfigType. If the user has permission to access the config, this function will be applied.
      * @param xContentRegistry The XContentRegistry used to create the XContentParser. This is used to parse the response into a ConfigType.
-     * @param filterByBackendRole A boolean indicating whether to filter by backend role. If true, the user's backend roles will be checked to ensure they have access to the config.
      * @param configTypeClass The class of the ConfigType, used by the ConfigFactory to parse the correct type of Config.
      */
     public static <ConfigType extends Config, GetConfigResponseType extends ActionResponse> void onGetConfigResponse(
         GetResponse response,
-        User requestUser,
         String configId,
         ActionListener<GetConfigResponseType> listener,
         Consumer<ConfigType> function,
         NamedXContentRegistry xContentRegistry,
-        boolean filterByBackendRole,
         Class<ConfigType> configTypeClass
     ) {
         if (response.isExists()) {
@@ -619,17 +591,11 @@ public final class ParseUtils {
                 ensureExpectedToken(XContentParser.Token.START_OBJECT, parser.nextToken(), parser);
                 @SuppressWarnings("unchecked")
                 ConfigType config = (ConfigType) Config.parseConfig(configTypeClass, parser);
-                User resourceUser = config.getUser();
 
-                if (!filterByBackendRole || checkUserPermissions(requestUser, resourceUser, configId) || isAdmin(requestUser)) {
-                    function.accept(config);
-                } else {
-                    logger.debug("User: " + requestUser.getName() + " does not have permissions to access config: " + configId);
-                    listener
-                        .onFailure(
-                            new OpenSearchStatusException(CommonMessages.NO_PERMISSION_TO_ACCESS_CONFIG + configId, RestStatus.FORBIDDEN)
-                        );
-                }
+                // permissions to execute action on this config is already checked and only reaches here if requestUser has sufficient
+                // permissions
+                function.accept(config);
+
             } catch (Exception e) {
                 logger.error("Fail to parse user out of config", e);
                 listener.onFailure(new OpenSearchStatusException(CommonMessages.FAIL_TO_GET_USER_INFO + configId, RestStatus.BAD_REQUEST));
@@ -858,6 +824,21 @@ public final class ParseUtils {
             .createParser(xContentRegistry, LoggingDeprecationHandler.INSTANCE, feature.getAggregation().toString());
         parser.nextToken();
         return ParseUtils.parseAggregationRequest(parser);
+    }
+
+    public static void validatePermissions(String detectorId, ActionListener<? extends ActionResponse> listener) {
+        // TODO the scope supplied here needs to be dynamically applicable to each function call type
+        // i.e. it should be different for adExecute(), forecastExecute(), etc.
+        boolean hasPermission = TimeSeriesAnalyticsPlugin.GuiceHolder
+            .getResourceService()
+            .getResourceAccessControlPlugin()
+            .hasPermission(detectorId, CommonName.CONFIG_INDEX, ADResourceScope.AD_FULL_ACCESS.getScopeName());
+
+        if (!hasPermission) {
+            logger.debug("Current user does not have permissions to access detector: " + detectorId);
+            listener
+                .onFailure(new OpenSearchStatusException(CommonMessages.NO_PERMISSION_TO_ACCESS_CONFIG + detectorId, RestStatus.FORBIDDEN));
+        }
     }
 
 }

@@ -37,7 +37,6 @@ import org.opensearch.common.CheckedConsumer;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.util.concurrent.ThreadContext;
-import org.opensearch.commons.authuser.User;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.action.ActionResponse;
 import org.opensearch.core.common.Strings;
@@ -67,7 +66,6 @@ import org.opensearch.timeseries.settings.TimeSeriesSettings;
 import org.opensearch.timeseries.task.TaskCacheManager;
 import org.opensearch.timeseries.task.TaskManager;
 import org.opensearch.timeseries.util.DiscoveryNodeFilterer;
-import org.opensearch.timeseries.util.ParseUtils;
 import org.opensearch.timeseries.util.RestHandlerUtils;
 import org.opensearch.timeseries.util.SecurityClientUtil;
 import org.opensearch.transport.TransportService;
@@ -160,13 +158,10 @@ public abstract class BaseGetConfigTransportAction<GetConfigResponseType extends
     public void doExecute(Task task, ActionRequest request, ActionListener<GetConfigResponseType> actionListener) {
         GetConfigRequest getConfigRequest = GetConfigRequest.fromActionRequest(request);
         String configID = getConfigRequest.getConfigID();
-        User user = ParseUtils.getUserContext(client);
         ActionListener<GetConfigResponseType> listener = wrapRestActionListener(actionListener, FAIL_TO_GET_CONFIG_MSG);
         try (ThreadContext.StoredContext context = client.threadPool().getThreadContext().stashContext()) {
             resolveUserAndExecute(
-                user,
                 configID,
-                filterByEnabled,
                 listener,
                 (config) -> getExecute(getConfigRequest, listener),
                 client,

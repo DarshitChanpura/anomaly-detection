@@ -30,7 +30,6 @@ import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.util.concurrent.ThreadContext;
-import org.opensearch.commons.authuser.User;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.rest.RestStatus;
 import org.opensearch.core.xcontent.NamedXContentRegistry;
@@ -49,7 +48,6 @@ import org.opensearch.timeseries.model.TaskType;
 import org.opensearch.timeseries.model.TimeSeriesTask;
 import org.opensearch.timeseries.task.TaskCacheManager;
 import org.opensearch.timeseries.task.TaskManager;
-import org.opensearch.timeseries.util.ParseUtils;
 import org.opensearch.timeseries.util.RestHandlerUtils;
 import org.opensearch.transport.TransportService;
 
@@ -106,44 +104,33 @@ public abstract class BaseDeleteConfigTransportAction<TaskCacheManagerType exten
     protected void doExecute(Task task, DeleteConfigRequest request, ActionListener<DeleteResponse> actionListener) {
         String configId = request.getConfigID();
         LOG.info("Delete job {}", configId);
-        User user = ParseUtils.getUserContext(client);
         ActionListener<DeleteResponse> listener = wrapRestActionListener(actionListener, FAIL_TO_DELETE_CONFIG);
         // By the time request reaches here, the user permissions are validated by Security plugin.
         try (ThreadContext.StoredContext context = client.threadPool().getThreadContext().stashContext()) {
-            resolveUserAndExecute(
-                user,
-                configId,
-                filterByEnabled,
-                listener,
-                (input) -> nodeStateManager.getConfig(configId, analysisType, config -> {
-                    if (config.isEmpty()) {
-                        // In a mixed cluster, if delete detector request routes to node running AD1.0, then it will
-                        // not delete detector tasks. User can re-delete these deleted detector after cluster upgraded,
-                        // in that case, the detector is not present.
-                        LOG.info("Can't find config {}", configId);
-                        taskManager.deleteTasks(configId, () -> deleteJobDoc(configId, listener), listener);
-                        return;
-                    }
-                    // Check if there is realtime job or batch analysis task running. If none of these running, we
-                    // can delete the config.
-                    getJob(configId, listener, () -> {
-                        taskManager.getAndExecuteOnLatestConfigLevelTask(configId, batchTaskTypes, configTask -> {
-                            if (configTask.isPresent() && !configTask.get().isDone()) {
-                                String batchTaskName = configTask.get() instanceof ADTask ? "Historical" : "Run once";
-                                listener.onFailure(new OpenSearchStatusException(batchTaskName + " is running", RestStatus.BAD_REQUEST));
-                            } else {
-                                taskManager.deleteTasks(configId, () -> deleteJobDoc(configId, listener), listener);
-                            }
-                            // false means don't reset task state as inactive/stopped state. We are checking if task has finished or not.
-                            // So no need to reset task state.
-                        }, transportService, false, listener);
-                    });
-                }, listener),
-                client,
-                clusterService,
-                xContentRegistry,
-                configTypeClass
-            );
+            resolveUserAndExecute(configId, listener, (input) -> nodeStateManager.getConfig(configId, analysisType, config -> {
+                if (config.isEmpty()) {
+                    // In a mixed cluster, if delete detector request routes to node running AD1.0, then it will
+                    // not delete detector tasks. User can re-delete these deleted detector after cluster upgraded,
+                    // in that case, the detector is not present.
+                    LOG.info("Can't find config {}", configId);
+                    taskManager.deleteTasks(configId, () -> deleteJobDoc(configId, listener), listener);
+                    return;
+                }
+                // Check if there is realtime job or batch analysis task running. If none of these running, we
+                // can delete the config.
+                getJob(configId, listener, () -> {
+                    taskManager.getAndExecuteOnLatestConfigLevelTask(configId, batchTaskTypes, configTask -> {
+                        if (configTask.isPresent() && !configTask.get().isDone()) {
+                            String batchTaskName = configTask.get() instanceof ADTask ? "Historical" : "Run once";
+                            listener.onFailure(new OpenSearchStatusException(batchTaskName + " is running", RestStatus.BAD_REQUEST));
+                        } else {
+                            taskManager.deleteTasks(configId, () -> deleteJobDoc(configId, listener), listener);
+                        }
+                        // false means don't reset task state as inactive/stopped state. We are checking if task has finished or not.
+                        // So no need to reset task state.
+                    }, transportService, false, listener);
+                });
+            }, listener), client, clusterService, xContentRegistry, configTypeClass);
         } catch (Exception e) {
             LOG.error(e);
             listener.onFailure(e);

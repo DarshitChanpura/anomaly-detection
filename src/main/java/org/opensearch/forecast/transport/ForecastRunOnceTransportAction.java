@@ -32,7 +32,6 @@ import org.opensearch.common.inject.Inject;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.common.util.concurrent.ThreadContext;
-import org.opensearch.commons.authuser.User;
 import org.opensearch.core.action.ActionListener;
 import org.opensearch.core.xcontent.NamedXContentRegistry;
 import org.opensearch.forecast.constant.ForecastCommonMessages;
@@ -71,7 +70,6 @@ import org.opensearch.timeseries.model.TimeSeriesTask;
 import org.opensearch.timeseries.stats.StatNames;
 import org.opensearch.timeseries.task.TaskCacheManager;
 import org.opensearch.timeseries.transport.ResultProcessor;
-import org.opensearch.timeseries.util.ParseUtils;
 import org.opensearch.timeseries.util.SecurityClientUtil;
 import org.opensearch.transport.TransportService;
 
@@ -154,13 +152,10 @@ public class ForecastRunOnceTransportAction extends HandledTransportAction<Forec
     @Override
     protected void doExecute(Task task, ForecastResultRequest request, ActionListener<ForecastResultResponse> listener) {
         String forecastID = request.getConfigId();
-        User user = ParseUtils.getUserContext(client);
         try (ThreadContext.StoredContext context = client.threadPool().getThreadContext().stashContext()) {
 
             resolveUserAndExecute(
-                user,
                 forecastID,
-                filterByEnabled,
                 listener,
                 (forecaster) -> executeRunOnce(forecastID, request, listener),
                 client,

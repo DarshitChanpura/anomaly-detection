@@ -98,9 +98,7 @@ public abstract class BaseJobTransportAction<IndexType extends Enum<IndexType> &
         User user = ParseUtils.getUserContext(client);
         try (ThreadContext.StoredContext context = client.threadPool().getThreadContext().stashContext()) {
             resolveUserAndExecute(
-                user,
                 configId,
-                filterByEnabled,
                 listener,
                 (config) -> executeConfig(listener, configId, dateRange, historical, rawPath, requestTimeout, user, context),
                 client,

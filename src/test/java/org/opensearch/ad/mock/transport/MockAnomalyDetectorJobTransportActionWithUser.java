@@ -99,9 +99,7 @@ public class MockAnomalyDetectorJobTransportActionWithUser extends HandledTransp
         User user = User.parse(userStr);
         try (ThreadContext.StoredContext context = client.threadPool().getThreadContext().stashContext()) {
             resolveUserAndExecute(
-                user,
                 detectorId,
-                filterByEnabled,
                 listener,
                 (anomalyDetector) -> executeDetector(listener, detectorId, rawPath, requestTimeout, user, detectionDateRange, historical),
                 client,

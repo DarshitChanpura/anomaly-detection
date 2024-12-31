@@ -42,6 +42,7 @@ import org.apache.commons.pool2.impl.GenericObjectPool;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.opensearch.SpecialPermission;
+import org.opensearch.accesscontrol.resources.ResourceService;
 import org.opensearch.action.ActionRequest;
 import org.opensearch.ad.ADJobProcessor;
 import org.opensearch.ad.ADTaskProfileRunner;
@@ -161,6 +162,10 @@ import org.opensearch.client.Client;
 import org.opensearch.cluster.metadata.IndexNameExpressionResolver;
 import org.opensearch.cluster.node.DiscoveryNodes;
 import org.opensearch.cluster.service.ClusterService;
+import org.opensearch.common.inject.Inject;
+import org.opensearch.common.lifecycle.Lifecycle;
+import org.opensearch.common.lifecycle.LifecycleComponent;
+import org.opensearch.common.lifecycle.LifecycleListener;
 import org.opensearch.common.settings.ClusterSettings;
 import org.opensearch.common.settings.IndexScopedSettings;
 import org.opensearch.common.settings.Setting;
@@ -267,10 +272,7 @@ import org.opensearch.jobscheduler.spi.ScheduledJobParser;
 import org.opensearch.jobscheduler.spi.ScheduledJobRunner;
 import org.opensearch.monitor.jvm.JvmInfo;
 import org.opensearch.monitor.jvm.JvmService;
-import org.opensearch.plugins.ActionPlugin;
-import org.opensearch.plugins.Plugin;
-import org.opensearch.plugins.ScriptPlugin;
-import org.opensearch.plugins.SystemIndexPlugin;
+import org.opensearch.plugins.*;
 import org.opensearch.repositories.RepositoriesService;
 import org.opensearch.rest.RestController;
 import org.opensearch.rest.RestHandler;
@@ -327,7 +329,13 @@ import io.protostuff.runtime.RuntimeSchema;
 /**
  * Entry point of time series analytics plugin.
  */
-public class TimeSeriesAnalyticsPlugin extends Plugin implements ActionPlugin, ScriptPlugin, SystemIndexPlugin, JobSchedulerExtension {
+public class TimeSeriesAnalyticsPlugin extends Plugin
+    implements
+        ActionPlugin,
+        ScriptPlugin,
+        SystemIndexPlugin,
+        JobSchedulerExtension,
+        ResourcePlugin {
 
     private static final Logger LOG = LogManager.getLogger(TimeSeriesAnalyticsPlugin.class);
 
@@ -1757,5 +1765,57 @@ public class TimeSeriesAnalyticsPlugin extends Plugin implements ActionPlugin, S
                 LOG.error("Failed to shut down object Pool", e);
             }
         }
+    }
+
+    @Override
+    public String getResourceType() {
+        return "detectors";
+    }
+
+    @Override
+    public String getResourceIndex() {
+        return CommonName.CONFIG_INDEX;
+    }
+
+    @Override
+    public Collection<Class<? extends LifecycleComponent>> getGuiceServiceClasses() {
+        final List<Class<? extends LifecycleComponent>> services = new ArrayList<>(1);
+        services.add(GuiceHolder.class);
+        return services;
+    }
+
+    public static class GuiceHolder implements LifecycleComponent {
+
+        private static ResourceService resourceService;
+
+        @Inject
+        public GuiceHolder(final ResourceService resourceService) {
+            GuiceHolder.resourceService = resourceService;
+        }
+
+        public static ResourceService getResourceService() {
+            return resourceService;
+        }
+
+        @Override
+        public void close() {}
+
+        @Override
+        public Lifecycle.State lifecycleState() {
+            return null;
+        }
+
+        @Override
+        public void addLifecycleListener(LifecycleListener listener) {}
+
+        @Override
+        public void removeLifecycleListener(LifecycleListener listener) {}
+
+        @Override
+        public void start() {}
+
+        @Override
+        public void stop() {}
+
     }
 }
