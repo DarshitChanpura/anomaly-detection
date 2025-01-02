@@ -21,6 +21,11 @@ import org.opensearch.rest.action.RestToXContentListener;
 import org.opensearch.timeseries.transport.ShareConfigAction;
 import org.opensearch.timeseries.transport.ShareConfigRequest;
 
+/**
+ * Registers REST API to handle detector/forecaster sharing.
+ * Here is an example request:
+ *
+ */
 public class RestShareConfigAction extends BaseRestHandler {
     public RestShareConfigAction() {}
 
