@@ -178,6 +178,11 @@ public class IndexAnomalyDetectorTransportAction extends HandledTransportAction<
             );
             indexAnomalyDetectorActionHandler.start(listener);
         }, listener);
+
+        // This call was added to ensure that existing functionality of sharing the resource via backend_role exists
+        // TODO 3.0 and later the following must be removed and a new REST API where user must explicitly share the detector should be
+        // exposed
+        shareResourceWithBackendRoles(detectorId, user, listener);
     }
 
     private void checkIndicesAndExecute(

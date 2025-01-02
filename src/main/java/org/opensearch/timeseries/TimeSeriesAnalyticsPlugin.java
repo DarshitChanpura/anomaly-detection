@@ -293,6 +293,7 @@ import org.opensearch.timeseries.feature.SearchFeatureDao;
 import org.opensearch.timeseries.function.ThrowingSupplierWrapper;
 import org.opensearch.timeseries.model.Job;
 import org.opensearch.timeseries.ratelimit.CheckPointMaintainRequestAdapter;
+import org.opensearch.timeseries.rest.RestShareConfigAction;
 import org.opensearch.timeseries.settings.TimeSeriesEnabledSetting;
 import org.opensearch.timeseries.settings.TimeSeriesSettings;
 import org.opensearch.timeseries.stats.StatNames;
@@ -302,6 +303,8 @@ import org.opensearch.timeseries.stats.suppliers.IndexStatusSupplier;
 import org.opensearch.timeseries.stats.suppliers.SettableSupplier;
 import org.opensearch.timeseries.task.TaskCacheManager;
 import org.opensearch.timeseries.transport.CronTransportAction;
+import org.opensearch.timeseries.transport.ShareConfigAction;
+import org.opensearch.timeseries.transport.ShareConfigTransportAction;
 import org.opensearch.timeseries.transport.handler.ResultBulkIndexingHandler;
 import org.opensearch.timeseries.util.ClientUtil;
 import org.opensearch.timeseries.util.DiscoveryNodeFilterer;
@@ -439,6 +442,9 @@ public class TimeSeriesAnalyticsPlugin extends Plugin
         RestValidateForecasterAction validateForecasterAction = new RestValidateForecasterAction(settings, clusterService);
         RestForecasterSuggestAction suggestForecasterParamAction = new RestForecasterSuggestAction(settings, clusterService);
 
+        // Config sharing and access control
+        RestShareConfigAction restShareConfigAction = new RestShareConfigAction();
+
         ForecastJobProcessor forecastJobRunner = ForecastJobProcessor.getInstance();
         forecastJobRunner.setClient(client);
         forecastJobRunner.setThreadPool(threadPool);
@@ -478,7 +484,9 @@ public class TimeSeriesAnalyticsPlugin extends Plugin
                 statsForecasterAction,
                 runOnceForecasterAction,
                 validateForecasterAction,
-                suggestForecasterParamAction
+                suggestForecasterParamAction,
+                // Config sharing and access control
+                restShareConfigAction
             );
     }
 
@@ -1711,7 +1719,8 @@ public class TimeSeriesAnalyticsPlugin extends Plugin
                 new ActionHandler<>(ForecastRunOnceAction.INSTANCE, ForecastRunOnceTransportAction.class),
                 new ActionHandler<>(ForecastRunOnceProfileAction.INSTANCE, ForecastRunOnceProfileTransportAction.class),
                 new ActionHandler<>(ValidateForecasterAction.INSTANCE, ValidateForecasterTransportAction.class),
-                new ActionHandler<>(SuggestForecasterParamAction.INSTANCE, SuggestForecasterParamTransportAction.class)
+                new ActionHandler<>(SuggestForecasterParamAction.INSTANCE, SuggestForecasterParamTransportAction.class),
+                new ActionHandler<>(ShareConfigAction.INSTANCE, ShareConfigTransportAction.class)
             );
     }
 

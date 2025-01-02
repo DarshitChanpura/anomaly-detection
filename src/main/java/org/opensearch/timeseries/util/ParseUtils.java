@@ -36,10 +36,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.lucene.search.join.ScoreMode;
 import org.opensearch.OpenSearchStatusException;
+import org.opensearch.accesscontrol.resources.RecipientType;
+import org.opensearch.accesscontrol.resources.ShareWith;
+import org.opensearch.accesscontrol.resources.SharedWithScope;
 import org.opensearch.action.get.GetRequest;
 import org.opensearch.action.get.GetResponse;
 import org.opensearch.action.search.SearchResponse;
 import org.opensearch.ad.constant.ADResourceScope;
+import org.opensearch.ad.transport.IndexAnomalyDetectorResponse;
 import org.opensearch.client.Client;
 import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.xcontent.LoggingDeprecationHandler;
@@ -839,6 +843,26 @@ public final class ParseUtils {
             listener
                 .onFailure(new OpenSearchStatusException(CommonMessages.NO_PERMISSION_TO_ACCESS_CONFIG + detectorId, RestStatus.FORBIDDEN));
         }
+    }
+
+    public static void shareResourceWithBackendRoles(String detectorId, User user, ActionListener<IndexAnomalyDetectorResponse> listener) {
+        SharedWithScope.ScopeRecipients recipients = new SharedWithScope.ScopeRecipients(
+            Map.of(new RecipientType("backend_roles"), Set.copyOf(user.getBackendRoles()))
+        );
+        ShareWith shareWith = new ShareWith(Set.of(new SharedWithScope(ADResourceScope.AD_FULL_ACCESS.getScopeName(), recipients)));
+
+        TimeSeriesAnalyticsPlugin.GuiceHolder
+            .getResourceService()
+            .getResourceAccessControlPlugin()
+            .shareWith(detectorId, CommonName.CONFIG_INDEX, shareWith);
+
+        logger
+            .info(
+                "Detector {} shared with backend roles of user {} for scope {}",
+                detectorId,
+                user.getName(),
+                ADResourceScope.AD_FULL_ACCESS.getScopeName()
+            );
     }
 
 }
