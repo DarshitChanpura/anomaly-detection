@@ -24,7 +24,21 @@ import org.opensearch.timeseries.transport.ShareConfigRequest;
 /**
  * Registers REST API to handle detector/forecaster sharing.
  * Here is an example request:
- *
+ * POST /_plugins/_anomaly_detection/detectors
+ * {
+ *   "config_id" :  <document_id>,
+ *   "share_with" : {
+ *     "AD_FULL_ACCESS": {
+ *         "users": ["x"],
+ *         "roles": ["y"],
+ *         "backend_roles": ["z"]
+ *     }
+ *   }
+ * }
+ * example response:
+ * {
+ *     "message": "Resource <document_id> shared successfully with <share_with>"
+ * }
  */
 public class RestShareConfigAction extends BaseRestHandler {
     public RestShareConfigAction() {}
