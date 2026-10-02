@@ -20,21 +20,19 @@ import org.opensearch.transport.client.Client;
 import org.opensearch.transport.client.FilterClient;
 
 /**
- * A special client for executing transport actions as this plugin's system subject.
+ * Executes transport actions as this plugin's assigned system subject rather than as the
+ * authenticated user, which is how the plugin reaches the system indices it owns.
  */
 public class PluginClient extends FilterClient {
 
     private static final Logger logger = LogManager.getLogger(PluginClient.class);
 
-    private Subject subject;
+    // Assigned from IdentityAwarePlugin.assignSubject, which runs on a different thread than the
+    // transport actions that read it.
+    private volatile Subject subject;
 
     public PluginClient(Client delegate) {
         super(delegate);
-    }
-
-    public PluginClient(Client delegate, Subject subject) {
-        super(delegate);
-        this.subject = subject;
     }
 
     public void setSubject(Subject subject) {
@@ -47,18 +45,26 @@ public class PluginClient extends FilterClient {
         Request request,
         ActionListener<Response> listener
     ) {
-        if (subject == null) {
-            throw new IllegalStateException("PluginClient is not initialized.");
+        Subject currentSubject = this.subject;
+        if (currentSubject == null) {
+            throw new IllegalStateException("PluginClient is not initialized with a subject.");
         }
-        try (ThreadContext.StoredContext ctx = threadPool().getThreadContext().newStoredContext(false)) {
-            subject.runAs(() -> {
-                logger.info("Running transport action with subject: {}", subject.getPrincipal().getName());
-                super.doExecute(action, request, ActionListener.runBefore(listener, ctx::restore));
+
+        // Saves the caller's context so it can be restored once the action completes. runAs performs
+        // the switch itself, so stashing here would clear the context before it gets the chance.
+        // Held in a local rather than a try-with-resources because the action is asynchronous: a try
+        // block would restore on exit, long before the listener fires.
+        ThreadContext.StoredContext storedContext = threadPool().getThreadContext().newStoredContext(false);
+
+        try {
+            currentSubject.runAs(() -> {
+                logger.debug("Running transport action as subject: {}", currentSubject.getPrincipal().getName());
+                super.doExecute(action, request, ActionListener.runBefore(listener, storedContext::restore));
             });
-        } catch (RuntimeException e) {
-            throw e;
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            // Reported through the listener rather than thrown, so an async caller is not left waiting.
+            storedContext.close();
+            listener.onFailure(e);
         }
     }
 }

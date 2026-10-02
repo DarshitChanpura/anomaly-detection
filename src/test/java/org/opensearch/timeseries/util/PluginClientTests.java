@@ -81,7 +81,8 @@ public class PluginClientTests extends OpenSearchTestCase {
             return null;
         }).when(subject).runAs(any());
 
-        pluginClient = new PluginClient(delegate, subject);
+        pluginClient = new PluginClient(delegate);
+        pluginClient.setSubject(subject);
     }
 
     @After
@@ -96,7 +97,7 @@ public class PluginClientTests extends OpenSearchTestCase {
             IllegalStateException.class,
             () -> pluginClient.execute(TEST_ACTION, new TestRequest(), ActionListener.wrap(r -> {}, e -> {}))
         );
-        assertTrue(ex.getMessage().contains("PluginClient is not initialized."));
+        assertTrue(ex.getMessage().contains("PluginClient is not initialized"));
     }
 
     public void testDelegatesExecuteAndRunsAsSubject_AndCapturesResponse() {
@@ -150,26 +151,35 @@ public class PluginClientTests extends OpenSearchTestCase {
         pluginClient.execute(TEST_ACTION, new TestRequest(), assertingListener);
     }
 
-    public void testCheckedExceptionFromRunAsIsWrapped() {
+    public void testCheckedExceptionFromRunAsGoesToListener() {
         // Make runAs throw a checked Exception
         doAnswer(inv -> { throw new Exception("boom"); }).when(subject).runAs(any());
 
-        RuntimeException ex = expectThrows(
-            RuntimeException.class,
-            () -> pluginClient.execute(TEST_ACTION, new TestRequest(), ActionListener.wrap(r -> {}, e -> {}))
-        );
-        assertTrue(ex.getMessage().contains("boom"));
+        @SuppressWarnings("unchecked")
+        ActionListener<TestResponse> userListener = mock(ActionListener.class);
+
+        pluginClient.execute(TEST_ACTION, new TestRequest(), userListener);
+
+        ArgumentCaptor<Exception> failureCaptor = ArgumentCaptor.forClass(Exception.class);
+        verify(userListener, times(1)).onFailure(failureCaptor.capture());
+        assertTrue(failureCaptor.getValue().getMessage().contains("boom"));
+        verify(userListener, never()).onResponse(any());
     }
 
-    public void testRuntimeExceptionFromDelegateBubblesUp() {
+    public void testRuntimeExceptionFromDelegateGoesToListener() {
         doAnswer(inv -> { throw new IllegalStateException("delegate-broke"); })
             .when(delegate)
             .execute(eq(TEST_ACTION), any(TestRequest.class), any());
 
-        IllegalStateException ex = expectThrows(
-            IllegalStateException.class,
-            () -> pluginClient.execute(TEST_ACTION, new TestRequest(), ActionListener.wrap(r -> {}, e -> {}))
-        );
-        assertTrue(ex.getMessage().contains("delegate-broke"));
+        @SuppressWarnings("unchecked")
+        ActionListener<TestResponse> userListener = mock(ActionListener.class);
+
+        pluginClient.execute(TEST_ACTION, new TestRequest(), userListener);
+
+        ArgumentCaptor<Exception> failureCaptor = ArgumentCaptor.forClass(Exception.class);
+        verify(userListener, times(1)).onFailure(failureCaptor.capture());
+        assertTrue(failureCaptor.getValue().getMessage().contains("delegate-broke"));
+        verify(userListener, never()).onResponse(any());
     }
+
 }
